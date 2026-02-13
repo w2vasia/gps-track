@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Test GPX File">
+  <metadata>
+    <name>Test Track</name>
+    <desc>A simple test track for the GPX viewer</desc>
+  </metadata>
+  <trk>
+    <name>Test Track</name>
+    <trkseg>
+      <trkpt lat="51.5074" lon="-0.1278">
+        <ele>10</ele>
+        <time>2023-01-01T10:00:00Z</time>
+      </trkpt>
+      <trkpt lat="51.5075" lon="-0.1279">
+        <ele>15</ele>
+        <time>2023-01-01T10:01:00Z</time>
+      </trkpt>
+      <trkpt lat="51.5076" lon="-0.1280">
+        <ele>20</ele>
+        <time>2023-01-01T10:02:00Z</time>
+      </trkpt>
+      <trkpt lat="51.5077" lon="-0.1281">
+        <ele>25</ele>
+        <time>2023-01-01T10:03:00Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+  <wpt lat="51.5080" lon="-0.1275">
+    <name>Test Waypoint</name>
+    <ele>30</ele>
+  </wpt>
+</gpx>
