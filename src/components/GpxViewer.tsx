@@ -6,6 +6,15 @@ import { parseGPX, GPXData } from '../utils/gpxParser';
 
 const TRACK_COLORS = ['#3e82f7', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
+const markerIcon = (color: string) => L.divIcon({
+  className: '',
+  iconSize: [12, 12],
+  iconAnchor: [6, 6],
+  html: `<div style="width:12px;height:12px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.3)"></div>`,
+});
+const startIcon = markerIcon('#10b981');
+const endIcon = markerIcon('#ef4444');
+
 const MAP_STYLES = [
   { id: 'positron', label: 'Light', url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>' },
   { id: 'dark', label: 'Dark', url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attr: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>' },
@@ -122,13 +131,19 @@ const GpxViewer: React.FC = () => {
     return all.reduce((acc, b) => acc.extend(b.getSouthWest()).extend(b.getNorthEast()), new L.LatLngBounds(all[0].getSouthWest(), all[0].getNorthEast()));
   }, [files]);
 
-  // Pre-compute polyline positions
+  // Pre-compute polyline positions + start/end points
   const filePositions = useMemo(() =>
     files.map(file => ({
       id: file.id,
       tracks: file.data.tracks
         .filter(t => t.points.length > 0)
-        .map(t => t.points.map(p => [p.lat, p.lng] as [number, number])),
+        .map(t => {
+          const positions = t.points.map(p => [p.lat, p.lng] as [number, number]);
+          const start = positions[0];
+          const end = positions[positions.length - 1];
+          const isLoop = Math.abs(start[0] - end[0]) < 0.0005 && Math.abs(start[1] - end[1]) < 0.0005;
+          return { positions, start, end, isLoop };
+        }),
     })),
     [files]
   );
@@ -268,19 +283,41 @@ const GpxViewer: React.FC = () => {
           <MapClickHandler onMapClick={clearFocus} />
 
           {files.map((file, fileIdx) => {
-            const positions = filePositions.find(fp => fp.id === file.id);
-            if (!positions) return null;
+            const fp = filePositions.find(f => f.id === file.id);
+            if (!fp) return null;
             const isFocused = focusedFileId === file.id;
             const hasFocus = focusedFileId !== null;
-            return positions.tracks.map((pos, trackIdx) => (
-              <Polyline
-                key={`${file.id}-t${trackIdx}`}
-                positions={pos}
-                color={TRACK_COLORS[fileIdx % TRACK_COLORS.length]}
-                weight={hasFocus ? (isFocused ? 5 : 3) : 4}
-                opacity={hasFocus ? (isFocused ? 1 : 0.4) : 0.8}
-              />
-            ));
+            const opacity = hasFocus ? (isFocused ? 1 : 0.4) : 0.8;
+            return fp.tracks.map((track, trackIdx) => {
+              const startPt = file.data.tracks[trackIdx]?.points[0];
+              const endPt = file.data.tracks[trackIdx]?.points[file.data.tracks[trackIdx].points.length - 1];
+              return (
+                <React.Fragment key={`${file.id}-t${trackIdx}`}>
+                  <Polyline
+                    positions={track.positions}
+                    color={TRACK_COLORS[fileIdx % TRACK_COLORS.length]}
+                    weight={hasFocus ? (isFocused ? 5 : 3) : 4}
+                    opacity={opacity}
+                  />
+                  <Marker position={track.start} icon={startIcon} opacity={opacity}>
+                    <Popup>
+                      <strong>Start</strong>
+                      {startPt?.ele != null && <div className="popup-detail">Elev: {Math.round(startPt.ele)}m</div>}
+                      {startPt?.time && <div className="popup-detail">{startPt.time.toLocaleString()}</div>}
+                    </Popup>
+                  </Marker>
+                  {!track.isLoop && (
+                    <Marker position={track.end} icon={endIcon} opacity={opacity}>
+                      <Popup>
+                        <strong>End</strong>
+                        {endPt?.ele != null && <div className="popup-detail">Elev: {Math.round(endPt.ele)}m</div>}
+                        {endPt?.time && <div className="popup-detail">{endPt.time.toLocaleString()}</div>}
+                      </Popup>
+                    </Marker>
+                  )}
+                </React.Fragment>
+              );
+            });
           })}
 
           {files.map(file =>
@@ -288,12 +325,10 @@ const GpxViewer: React.FC = () => {
               <Marker key={`${file.id}-wp${i}`} position={[wp.lat, wp.lng]}>
                 <Popup>
                   <div>
-                    <strong>Waypoint {i + 1}</strong><br />
-                    Lat: {wp.lat.toFixed(6)}<br />
-                    Lng: {wp.lng.toFixed(6)}<br />
-                    {wp.ele != null && `Elevation: ${wp.ele}m`}
-                    {wp.time && <><br />Time: {wp.time.toLocaleString()}</>}
-                    {wp.name && <><br />Name: {wp.name}</>}
+                    <strong>{wp.name || `Waypoint ${i + 1}`}</strong>
+                    <div className="popup-detail">{wp.lat.toFixed(6)}, {wp.lng.toFixed(6)}</div>
+                    {wp.ele != null && <div className="popup-detail">Elev: {Math.round(wp.ele)}m</div>}
+                    {wp.time && <div className="popup-detail">{wp.time.toLocaleString()}</div>}
                   </div>
                 </Popup>
               </Marker>
