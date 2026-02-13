@@ -111,6 +111,7 @@ const GpxViewer: React.FC = () => {
   const [mapStyle, setMapStyle] = useState<(typeof MAP_STYLES)[number]>(MAP_STYLES[0]);
   const [focusedFileId, setFocusedFileId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showAbout, setShowAbout] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
   const nextId = useRef(0);
@@ -328,6 +329,7 @@ const GpxViewer: React.FC = () => {
             onClick={() => fileInputRef.current?.click()}
           >
             <div className="flex flex-col items-center gap-3 text-gray-400 transition-colors group-hover:text-[#3e82f7]">
+              <div className="mb-1 text-xl font-semibold tracking-tight text-gray-700">Drift</div>
               <svg className="h-10 w-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                 <polyline points="17 8 12 3 7 8" />
@@ -345,7 +347,22 @@ const GpxViewer: React.FC = () => {
         <div className="absolute top-3 right-3 z-[1000] flex max-h-[50vh] w-64 flex-col rounded-xl bg-white/90 shadow-lg backdrop-blur-lg max-sm:left-3 max-sm:w-auto">
           {/* Header */}
           <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-semibold tracking-tight text-gray-700">Drift</span>
+              <button
+                className="flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-gray-300 transition-colors hover:text-[#3e82f7]"
+                onClick={() => setShowAbout(true)}
+                title="About Drift"
+              >
+                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="16" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12.01" y2="8" />
+                </svg>
+              </button>
+              {loading && <Spinner className="h-3.5 w-3.5" />}
+            </div>
+            <div className="flex items-center gap-1">
               <button
                 className="cursor-pointer rounded-lg border-none bg-transparent px-2 py-1 text-xs text-[#3e82f7] transition-colors hover:bg-[#3e82f7]/10"
                 onClick={() => fileInputRef.current?.click()}
@@ -353,15 +370,15 @@ const GpxViewer: React.FC = () => {
               >
                 + Add
               </button>
-              {loading && <Spinner className="h-3.5 w-3.5" />}
+              <span className="text-gray-200">|</span>
+              <button
+                className="cursor-pointer rounded-lg border-none bg-transparent px-2 py-1 text-xs text-gray-400 transition-colors hover:text-red-500 hover:bg-red-50"
+                onClick={clearAll}
+                title="Clear all"
+              >
+                Clear
+              </button>
             </div>
-            <button
-              className="cursor-pointer rounded-lg border-none bg-transparent px-2 py-1 text-xs text-gray-400 transition-colors hover:text-red-500 hover:bg-red-50"
-              onClick={clearAll}
-              title="Clear all"
-            >
-              Clear all
-            </button>
           </div>
 
           {/* Search (visible when > 5 files) */}
@@ -412,6 +429,36 @@ const GpxViewer: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {/* About modal */}
+      {showAbout && (
+        <div
+          className="absolute inset-0 z-[1002] flex items-center justify-center bg-black/30 backdrop-blur-xs"
+          onClick={() => setShowAbout(false)}
+        >
+          <div
+            className="w-72 rounded-2xl bg-white/95 px-8 py-7 shadow-2xl backdrop-blur-lg"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex flex-col items-center gap-4 text-center">
+              <div className="text-2xl font-semibold tracking-tight text-gray-800">Drift</div>
+              <p className="text-sm leading-relaxed text-gray-400">
+                Drop your GPX files and see where you've been. Tracks, routes, waypoints — all on one map.
+              </p>
+              <div className="flex flex-col gap-1 text-xs text-gray-300">
+                <span>v1.0.0</span>
+                <span>by w2vasia</span>
+              </div>
+              <button
+                className="mt-1 cursor-pointer rounded-lg border-none bg-[#3e82f7]/10 px-4 py-1.5 text-xs font-medium text-[#3e82f7] transition-colors hover:bg-[#3e82f7]/20"
+                onClick={() => setShowAbout(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error toast */}
       {errors.length > 0 && (

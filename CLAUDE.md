@@ -14,7 +14,7 @@ No test suite configured. Type-check with `npx tsc --noEmit`.
 
 ## Architecture
 
-Multi-file GPX track viewer. React 19 + TypeScript, Vite 7, Leaflet via react-leaflet, Tailwind CSS v4 (Vite plugin).
+**Drift** — multi-file GPX track viewer. React 19 + TypeScript, Vite 7, Leaflet via react-leaflet, Tailwind CSS v4 (Vite plugin).
 
 Almost all logic lives in `src/components/GpxViewer.tsx` — map rendering, file upload/drag-drop, overlay panels, map style switcher. This is intentional; the app is small and doesn't warrant splitting further.
 
