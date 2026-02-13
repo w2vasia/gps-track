@@ -55,9 +55,12 @@ export const parseGPXFallback = (gpxContent: string): GPXData => {
       // Look for track points (<trkpt>)
       const trackPointElements = segEl.querySelectorAll('trkpt');
       trackPointElements.forEach(pointEl => {
-        const lat = parseFloat(pointEl.getAttribute('lat') || '0');
-        const lon = parseFloat(pointEl.getAttribute('lon') || '0');
-        
+        const latAttr = pointEl.getAttribute('lat');
+        const lonAttr = pointEl.getAttribute('lon');
+        if (latAttr == null || lonAttr == null) return;
+        const lat = parseFloat(latAttr);
+        const lon = parseFloat(lonAttr);
+
         if (!isNaN(lat) && !isNaN(lon)) {
           const point: Waypoint = {
             lat,
@@ -99,9 +102,12 @@ export const parseGPXFallback = (gpxContent: string): GPXData => {
   // Parse waypoints (<wpt> elements)
   const waypointElements = gpx.querySelectorAll('wpt');
   waypointElements.forEach(wpEl => {
-    const lat = parseFloat(wpEl.getAttribute('lat') || '0');
-    const lon = parseFloat(wpEl.getAttribute('lon') || '0');
-    
+    const latAttr = wpEl.getAttribute('lat');
+    const lonAttr = wpEl.getAttribute('lon');
+    if (latAttr == null || lonAttr == null) return;
+    const lat = parseFloat(latAttr);
+    const lon = parseFloat(lonAttr);
+
     if (!isNaN(lat) && !isNaN(lon)) {
       const waypoint: Waypoint = {
         lat,
@@ -190,31 +196,24 @@ export const parseGPX = async (gpxContent: string): Promise<GPXData> => {
       if (geojson && geojson.features) {
         for (const feature of geojson.features) {
           if (feature.geometry.type === 'LineString' || feature.geometry.type === 'MultiLineString') {
-            // This is a track/route
-            let coordinates: number[][] = [];
-            
-            if (feature.geometry.type === 'LineString') {
-              coordinates = feature.geometry.coordinates;
-            } else if (feature.geometry.type === 'MultiLineString') {
-              // For MultiLineString, take the first line or flatten all
-              coordinates = feature.geometry.coordinates[0] || [];
+            const coordGroups: number[][][] =
+              feature.geometry.type === 'MultiLineString'
+                ? feature.geometry.coordinates
+                : [feature.geometry.coordinates];
+
+            for (const coordinates of coordGroups) {
+              const points: Waypoint[] = coordinates.map((coord: number[]) => {
+                const point: Waypoint = {
+                  lng: coord[0],
+                  lat: coord[1],
+                };
+                if (coord.length > 2) {
+                  point.ele = coord[2];
+                }
+                return point;
+              });
+              tracks.push({ points });
             }
-            
-            const points: Waypoint[] = coordinates.map(coord => {
-              const point: Waypoint = {
-                lng: coord[0], // longitude is first in GeoJSON
-                lat: coord[1], // latitude is second
-              };
-              
-              // Elevation might be in the third coordinate for 3D GeoJSON
-              if (coord.length > 2) {
-                point.ele = coord[2];
-              }
-              
-              return point;
-            });
-            
-            tracks.push({ points });
           } else if (feature.geometry.type === 'Point') {
             // This is a waypoint
             const coord = feature.geometry.coordinates;
