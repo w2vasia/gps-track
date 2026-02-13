@@ -1,4 +1,4 @@
 declare module '@mapbox/togeojson' {
-  const toGeoJSON: any;
-  export default toGeoJSON;
+  export function gpx(doc: Document): GeoJSON.FeatureCollection;
+  export function kml(doc: Document): GeoJSON.FeatureCollection;
 }

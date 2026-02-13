@@ -1,5 +1,5 @@
-import React, { useState, useRef, useMemo } from 'react';
-import { MapContainer, TileLayer, Polyline, Marker, Popup, ScaleControl, useMap } from 'react-leaflet';
+import React, { useState, useRef, useMemo, useCallback } from 'react';
+import { MapContainer, TileLayer, Polyline, Marker, Popup, ScaleControl, useMap, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { parseGPX, GPXData } from '../utils/gpxParser';
@@ -29,6 +29,11 @@ const MapBoundsUpdater: React.FC<{ bounds: L.LatLngBounds | null; version: numbe
   return null;
 };
 
+const MapClickHandler: React.FC<{ onMapClick: () => void }> = ({ onMapClick }) => {
+  useMapEvents({ click: onMapClick });
+  return null;
+};
+
 const fileBounds = (file: LoadedFile): L.LatLngBounds | null => {
   let minLat = Infinity, maxLat = -Infinity;
   let minLng = Infinity, maxLng = -Infinity;
@@ -46,20 +51,66 @@ const fileBounds = (file: LoadedFile): L.LatLngBounds | null => {
   return null;
 };
 
-delete (L.Icon.Default.prototype as any)._getIconUrl;
+delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
 });
 
+interface FileListItemProps {
+  file: LoadedFile;
+  color: string;
+  focused: boolean;
+  onFocus: (file: LoadedFile) => void;
+  onRemove: (id: string) => void;
+}
+
+const FileListItem = React.memo<FileListItemProps>(({ file, color, focused, onFocus, onRemove }) => (
+  <div
+    className={`group flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-black/4 ${focused ? 'bg-black/6' : ''}`}
+  >
+    <span
+      className="h-2.5 w-2.5 shrink-0 rounded-full"
+      style={{ backgroundColor: color }}
+    />
+    <span
+      className={`min-w-0 flex-1 cursor-pointer truncate text-sm transition-colors hover:text-[#3e82f7] ${focused ? 'font-medium text-[#3e82f7]' : 'text-gray-600'}`}
+      onClick={() => onFocus(file)}
+      title="Zoom to track"
+    >
+      {file.data.name || file.fileName}
+    </span>
+    <button
+      className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-gray-300 opacity-0 transition-all group-hover:opacity-100 hover:bg-red-50 hover:text-red-500"
+      onClick={() => onRemove(file.id)}
+      title="Remove"
+    >
+      <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
+    </button>
+  </div>
+));
+
+const Spinner: React.FC<{ className?: string }> = ({ className = 'h-5 w-5' }) => (
+  <svg className={`animate-spin text-[#3e82f7] ${className}`} viewBox="0 0 24 24" fill="none">
+    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+  </svg>
+);
+
 const GpxViewer: React.FC = () => {
   const [files, setFiles] = useState<LoadedFile[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [focusBounds, setFocusBounds] = useState<L.LatLngBounds | null>(null);
   const [boundsVersion, setBoundsVersion] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
   const [mapStyle, setMapStyle] = useState<(typeof MAP_STYLES)[number]>(MAP_STYLES[0]);
+  const [focusedFileId, setFocusedFileId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
   const nextId = useRef(0);
@@ -70,29 +121,45 @@ const GpxViewer: React.FC = () => {
     return all.reduce((acc, b) => acc.extend(b.getSouthWest()).extend(b.getNorthEast()), new L.LatLngBounds(all[0].getSouthWest(), all[0].getNorthEast()));
   }, [files]);
 
+  // Pre-compute polyline positions
+  const filePositions = useMemo(() =>
+    files.map(file => ({
+      id: file.id,
+      tracks: file.data.tracks
+        .filter(t => t.points.length > 0)
+        .map(t => t.points.map(p => [p.lat, p.lng] as [number, number])),
+    })),
+    [files]
+  );
+
   const processFiles = async (fileList: File[]) => {
     const gpxFiles = fileList.filter(f => f.name.endsWith('.gpx'));
     if (gpxFiles.length === 0) return;
 
-    const newEntries: LoadedFile[] = [];
-    const failed: string[] = [];
-    for (const file of gpxFiles) {
-      try {
-        const content = await file.text();
-        const data = await parseGPX(content);
-        newEntries.push({ id: String(++nextId.current), fileName: file.name, data });
-      } catch (error) {
-        failed.push(file.name);
+    setLoading(true);
+    try {
+      const newEntries: LoadedFile[] = [];
+      const failed: string[] = [];
+      for (const file of gpxFiles) {
+        try {
+          const content = await file.text();
+          const data = await parseGPX(content);
+          newEntries.push({ id: String(++nextId.current), fileName: file.name, data });
+        } catch {
+          failed.push(file.name);
+        }
       }
-    }
-    if (failed.length > 0) {
-      setErrors(failed.map(n => `Failed to parse ${n}`));
-      setTimeout(() => setErrors([]), 4000);
-    }
-    if (newEntries.length > 0) {
-      setFiles(prev => [...prev, ...newEntries]);
-      setFocusBounds(null);
-      setBoundsVersion(v => v + 1);
+      if (failed.length > 0) {
+        setErrors(failed.map(n => `Failed to parse ${n}`));
+        setTimeout(() => setErrors([]), 4000);
+      }
+      if (newEntries.length > 0) {
+        setFiles(prev => [...prev, ...newEntries]);
+        setFocusBounds(null);
+        setBoundsVersion(v => v + 1);
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -121,23 +188,49 @@ const GpxViewer: React.FC = () => {
 
   const handleDragOver = (event: React.DragEvent) => event.preventDefault();
 
-  const removeFile = (id: string) => {
+  const removeFile = useCallback((id: string) => {
     setFiles(prev => prev.filter(f => f.id !== id));
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
+    setFocusedFileId(prev => prev === id ? null : prev);
+  }, []);
 
-  const focusFile = (file: LoadedFile) => {
-    const bounds = fileBounds(file);
-    if (bounds) {
-      setFocusBounds(bounds);
-      setBoundsVersion(v => v + 1);
-    }
-  };
+  const focusFile = useCallback((file: LoadedFile) => {
+    setFocusedFileId(prev => {
+      if (prev === file.id) {
+        // Deselect
+        return null;
+      }
+      const bounds = fileBounds(file);
+      if (bounds) {
+        setFocusBounds(bounds);
+        setBoundsVersion(v => v + 1);
+      }
+      return file.id;
+    });
+  }, []);
+
+  const clearFocus = useCallback(() => {
+    setFocusedFileId(null);
+  }, []);
 
   const clearAll = () => {
     setFiles([]);
+    setFocusedFileId(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
+
+  const filteredFiles = useMemo(() => {
+    if (!searchQuery) return files;
+    const q = searchQuery.toLowerCase();
+    return files.filter(f =>
+      (f.data.name || f.fileName).toLowerCase().includes(q)
+    );
+  }, [files, searchQuery]);
+
+  // Format errors for toast
+  const errorDisplay = useMemo(() => {
+    if (errors.length <= 3) return { shown: errors, extra: 0 };
+    return { shown: errors.slice(0, 3), extra: errors.length - 3 };
+  }, [errors]);
 
   return (
     <div
@@ -171,18 +264,23 @@ const GpxViewer: React.FC = () => {
           />
           <ScaleControl position="bottomleft" />
           <MapBoundsUpdater bounds={focusBounds ?? mapBounds} version={boundsVersion} />
+          <MapClickHandler onMapClick={clearFocus} />
 
-          {files.map((file, fileIdx) =>
-            file.data.tracks?.map((track, trackIdx) => (
+          {files.map((file, fileIdx) => {
+            const positions = filePositions.find(fp => fp.id === file.id);
+            if (!positions) return null;
+            const isFocused = focusedFileId === file.id;
+            const hasFocus = focusedFileId !== null;
+            return positions.tracks.map((pos, trackIdx) => (
               <Polyline
                 key={`${file.id}-t${trackIdx}`}
-                positions={track.points.map(p => [p.lat, p.lng])}
+                positions={pos}
                 color={TRACK_COLORS[fileIdx % TRACK_COLORS.length]}
-                weight={4}
-                opacity={0.8}
+                weight={hasFocus ? (isFocused ? 5 : 3) : 4}
+                opacity={hasFocus ? (isFocused ? 1 : 0.4) : 0.8}
               />
-            ))
-          )}
+            ));
+          })}
 
           {files.map(file =>
             file.data.waypoints?.map((wp, i) => (
@@ -212,8 +310,18 @@ const GpxViewer: React.FC = () => {
         </div>
       )}
 
+      {/* Loading spinner — first load */}
+      {loading && files.length === 0 && !dragging && (
+        <div className="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3 rounded-2xl bg-white/90 px-10 py-8 shadow-xl backdrop-blur-lg">
+            <Spinner className="h-8 w-8" />
+            <span className="text-sm font-medium text-gray-400">Loading tracks…</span>
+          </div>
+        </div>
+      )}
+
       {/* Empty state */}
-      {files.length === 0 && !dragging && (
+      {files.length === 0 && !dragging && !loading && (
         <div className="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center">
           <div
             className="pointer-events-auto group cursor-pointer rounded-2xl bg-white/90 px-10 py-8 shadow-xl backdrop-blur-lg transition-all hover:shadow-2xl hover:bg-white/95"
@@ -237,13 +345,16 @@ const GpxViewer: React.FC = () => {
         <div className="absolute top-3 right-3 z-[1000] flex max-h-[50vh] w-64 flex-col rounded-xl bg-white/90 shadow-lg backdrop-blur-lg max-sm:left-3 max-sm:w-auto">
           {/* Header */}
           <div className="flex items-center justify-between px-3 pt-2.5 pb-1.5">
-            <button
-              className="cursor-pointer rounded-lg border-none bg-transparent px-2 py-1 text-xs text-[#3e82f7] transition-colors hover:bg-[#3e82f7]/10"
-              onClick={() => fileInputRef.current?.click()}
-              title="Add more files"
-            >
-              + Add
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="cursor-pointer rounded-lg border-none bg-transparent px-2 py-1 text-xs text-[#3e82f7] transition-colors hover:bg-[#3e82f7]/10"
+                onClick={() => fileInputRef.current?.click()}
+                title="Add more files"
+              >
+                + Add
+              </button>
+              {loading && <Spinner className="h-3.5 w-3.5" />}
+            </div>
             <button
               className="cursor-pointer rounded-lg border-none bg-transparent px-2 py-1 text-xs text-gray-400 transition-colors hover:text-red-500 hover:bg-red-50"
               onClick={clearAll}
@@ -253,36 +364,34 @@ const GpxViewer: React.FC = () => {
             </button>
           </div>
 
+          {/* Search (visible when > 5 files) */}
+          {files.length > 5 && (
+            <div className="px-2 pb-1">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search files…"
+                className="w-full rounded-lg border border-gray-200 bg-white/80 px-2.5 py-1 text-xs text-gray-600 outline-none placeholder:text-gray-300 focus:border-[#3e82f7]/40"
+              />
+            </div>
+          )}
+
           {/* File list */}
           <div className="flex flex-col gap-0.5 overflow-y-auto px-1.5 pb-2">
-            {files.map((file, idx) => (
-              <div
-                key={file.id}
-                className="group flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-black/4"
-              >
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: TRACK_COLORS[idx % TRACK_COLORS.length] }}
+            {filteredFiles.map(file => {
+              const globalIdx = files.indexOf(file);
+              return (
+                <FileListItem
+                  key={file.id}
+                  file={file}
+                  color={TRACK_COLORS[globalIdx % TRACK_COLORS.length]}
+                  focused={focusedFileId === file.id}
+                  onFocus={focusFile}
+                  onRemove={removeFile}
                 />
-                <span
-                  className="min-w-0 flex-1 cursor-pointer truncate text-sm text-gray-600 hover:text-[#3e82f7]"
-                  onClick={() => focusFile(file)}
-                  title="Zoom to track"
-                >
-                  {file.data.name || file.fileName}
-                </span>
-                <button
-                  className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-gray-300 opacity-0 transition-all group-hover:opacity-100 hover:bg-red-50 hover:text-red-500"
-                  onClick={() => removeFile(file.id)}
-                  title="Remove"
-                >
-                  <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -306,8 +415,15 @@ const GpxViewer: React.FC = () => {
 
       {/* Error toast */}
       {errors.length > 0 && (
-        <div className="absolute bottom-4 left-1/2 z-[1000] -translate-x-1/2 rounded-lg bg-red-600 px-4 py-2 text-sm text-white shadow-lg">
-          {errors.join(', ')}
+        <div className="absolute bottom-4 left-1/2 z-[1000] max-w-md -translate-x-1/2 rounded-lg bg-red-600 px-4 py-2 text-sm text-white shadow-lg">
+          <div className="max-h-24 overflow-y-auto">
+            {errorDisplay.shown.map((e, i) => (
+              <div key={i}>{e}</div>
+            ))}
+            {errorDisplay.extra > 0 && (
+              <div className="mt-1 text-red-200">and {errorDisplay.extra} more</div>
+            )}
+          </div>
         </div>
       )}
     </div>
