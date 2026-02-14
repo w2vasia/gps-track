@@ -63,6 +63,15 @@
 .leaflet-control-scale {
   margin-left: 16px !important;
   margin-bottom: 24px !important;
+  transition: margin-bottom 0.2s ease;
+}
+
+.elevation-panel-stats .leaflet-control-scale {
+  margin-bottom: 56px !important;
+}
+
+.elevation-panel-chart .leaflet-control-scale {
+  margin-bottom: 200px !important;
 }
 
 .leaflet-control-scale-line {

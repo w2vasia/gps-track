@@ -1,6 +1,6 @@
 {
   "name": "drift",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Playful GPX track viewer — drop files, see where you've been",
   "main": "index.js",
   "type": "module",
@@ -24,7 +24,8 @@
     "leaflet": "^1.9.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-leaflet": "^5.0.0"
+    "react-leaflet": "^5.0.0",
+    "recharts": "^3.7.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
