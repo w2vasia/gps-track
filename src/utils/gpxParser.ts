@@ -1,5 +1,3 @@
-import * as toGeoJSON from '@mapbox/togeojson';
-
 export interface Waypoint {
   lat: number;
   lng: number;
@@ -100,6 +98,7 @@ export const parseGPX = async (gpxContent: string): Promise<GPXData> => {
     const parseError = doc.querySelector('parsererror');
     if (parseError) throw new Error('Error parsing GPX XML');
 
+    const toGeoJSON = await import('@mapbox/togeojson');
     const geojson = toGeoJSON.gpx(doc);
 
     const tracks: TrackSegment[] = [];
@@ -140,3 +139,52 @@ const coordToWaypoint = (coord: number[]): Waypoint => {
   if (coord.length > 2) wp.ele = coord[2];
   return wp;
 };
+
+// Serialized types for Web Worker postMessage (Date → ISO string)
+export interface SerializedWaypoint {
+  lat: number;
+  lng: number;
+  ele?: number;
+  time?: string;
+  name?: string;
+}
+
+export interface SerializedGPXData {
+  name?: string;
+  desc?: string;
+  author?: string;
+  tracks: { points: SerializedWaypoint[] }[];
+  waypoints: SerializedWaypoint[];
+}
+
+const serializeWaypoint = (wp: Waypoint): SerializedWaypoint => {
+  const s: SerializedWaypoint = { lat: wp.lat, lng: wp.lng };
+  if (wp.ele !== undefined) s.ele = wp.ele;
+  if (wp.time) s.time = wp.time.toISOString();
+  if (wp.name) s.name = wp.name;
+  return s;
+};
+
+const deserializeWaypoint = (sw: SerializedWaypoint): Waypoint => {
+  const wp: Waypoint = { lat: sw.lat, lng: sw.lng };
+  if (sw.ele !== undefined) wp.ele = sw.ele;
+  if (sw.time) wp.time = new Date(sw.time);
+  if (sw.name) wp.name = sw.name;
+  return wp;
+};
+
+export const serializeGPXData = (data: GPXData): SerializedGPXData => ({
+  name: data.name,
+  desc: data.desc,
+  author: data.author,
+  tracks: data.tracks.map(t => ({ points: t.points.map(serializeWaypoint) })),
+  waypoints: data.waypoints.map(serializeWaypoint),
+});
+
+export const deserializeGPXData = (data: SerializedGPXData): GPXData => ({
+  name: data.name,
+  desc: data.desc,
+  author: data.author,
+  tracks: data.tracks.map(t => ({ points: t.points.map(deserializeWaypoint) })),
+  waypoints: data.waypoints.map(deserializeWaypoint),
+});
