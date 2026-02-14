@@ -2,8 +2,10 @@ import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { MapContainer, TileLayer, Polyline, Marker, Popup, ScaleControl, useMap, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { parseGPX, GPXData } from '../utils/gpxParser';
 import { WorkerPool } from '../utils/workerPool';
+import { computeTrackStats, computeElevationProfile, type TrackStats, type ElevationPoint } from '../utils/trackStats';
 
 const TRACK_COLORS = ['#3e82f7', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'] as const;
 const PICKER_COLORS = [...TRACK_COLORS, '#f97316', '#14b8a6', '#a855f7', '#e11d48'] as const;
@@ -151,6 +153,12 @@ const Spinner: React.FC<{ className?: string }> = ({ className = 'h-5 w-5' }) =>
     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
   </svg>
 );
+
+const formatDuration = (seconds: number): string => {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}` : `${m}m`;
+};
 
 let pool: WorkerPool | null = null;
 const getPool = (): WorkerPool => {
@@ -315,6 +323,43 @@ const GpxViewer: React.FC = () => {
       (f.data.name || f.fileName).toLowerCase().includes(q)
     );
   }, [files, searchQuery]);
+
+  const focusedFile = useMemo(() => files.find(f => f.id === focusedFileId) ?? null, [files, focusedFileId]);
+
+  const focusedStats = useMemo((): { stats: TrackStats; elevation: ElevationPoint[] } | null => {
+    if (!focusedFile) return null;
+    const tracks = focusedFile.data.tracks;
+    if (tracks.length === 0) return null;
+
+    let distance = 0, elevGain = 0, elevLoss = 0;
+    let maxEle: number | null = null, minEle: number | null = null;
+    let totalDuration: number | null = null;
+    const allElevation: ElevationPoint[] = [];
+    let cumulativeDistance = 0;
+
+    for (const track of tracks) {
+      const s = computeTrackStats(track);
+      distance += s.distance;
+      elevGain += s.elevGain;
+      elevLoss += s.elevLoss;
+      if (s.maxEle != null) maxEle = maxEle != null ? Math.max(maxEle, s.maxEle) : s.maxEle;
+      if (s.minEle != null) minEle = minEle != null ? Math.min(minEle, s.minEle) : s.minEle;
+      if (s.duration != null) totalDuration = (totalDuration ?? 0) + s.duration;
+
+      const segProfile = computeElevationProfile(track);
+      for (const p of segProfile) {
+        allElevation.push({ distance: p.distance + cumulativeDistance / 1000, elevation: p.elevation });
+      }
+      cumulativeDistance += s.distance;
+    }
+
+    const avgSpeed = totalDuration && totalDuration > 0 ? distance / totalDuration : null;
+
+    return {
+      stats: { distance, elevGain, elevLoss, duration: totalDuration, avgSpeed, maxEle, minEle },
+      elevation: allElevation,
+    };
+  }, [focusedFile]);
 
   // Format errors for toast
   const errorDisplay = useMemo(() => {
@@ -519,7 +564,7 @@ const GpxViewer: React.FC = () => {
       )}
 
       {/* Map style switcher */}
-      <div className="absolute bottom-3 right-3 z-[1000] flex gap-1 rounded-full bg-white/90 p-1 shadow-lg backdrop-blur-lg">
+      <div className={`absolute right-3 z-[1000] flex gap-1 rounded-full bg-white/90 p-1 shadow-lg backdrop-blur-lg transition-all ${focusedStats ? (focusedStats.elevation.length > 0 ? 'bottom-[195px]' : 'bottom-[50px]') : 'bottom-3'}`}>
         {MAP_STYLES.map(style => (
           <button
             key={style.id}
@@ -579,9 +624,101 @@ const GpxViewer: React.FC = () => {
         </div>
       )}
 
+      {/* Elevation panel */}
+      {focusedStats && (
+        <div className="absolute right-0 bottom-0 left-0 z-[1000] bg-white/95 shadow-[0_-2px_12px_rgba(0,0,0,0.1)] backdrop-blur-lg">
+          {/* Stats bar */}
+          <div className="flex items-center gap-4 border-b border-gray-100 px-4 py-2">
+            <div className="min-w-0 flex-1 truncate text-xs font-medium text-gray-600">
+              {focusedFile?.data.name || focusedFile?.fileName}
+            </div>
+            <div className="flex items-center gap-3 text-xs text-gray-500">
+              <span title="Distance">{(focusedStats.stats.distance / 1000).toFixed(1)} km</span>
+              {focusedStats.stats.elevGain > 0 && (
+                <span title="Elevation gain" className="text-emerald-600">↑ {Math.round(focusedStats.stats.elevGain)}m</span>
+              )}
+              {focusedStats.stats.elevLoss > 0 && (
+                <span title="Elevation loss" className="text-red-500">↓ {Math.round(focusedStats.stats.elevLoss)}m</span>
+              )}
+              {focusedStats.stats.maxEle != null && (
+                <span title="Max elevation">⬆ {Math.round(focusedStats.stats.maxEle)}m</span>
+              )}
+              {focusedStats.stats.minEle != null && (
+                <span title="Min elevation">⬇ {Math.round(focusedStats.stats.minEle)}m</span>
+              )}
+              {focusedStats.stats.duration != null && (
+                <span title="Duration">⏱ {formatDuration(focusedStats.stats.duration)}</span>
+              )}
+              {focusedStats.stats.avgSpeed != null && (
+                <span title="Average speed">{(focusedStats.stats.avgSpeed * 3.6).toFixed(1)} km/h</span>
+              )}
+            </div>
+            <button
+              className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-gray-400 transition-colors hover:text-gray-600"
+              onClick={clearFocus}
+              title="Close"
+            >
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Elevation chart */}
+          {focusedStats.elevation.length > 0 && (
+            <div className="h-[150px] w-full px-2 py-1">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={focusedStats.elevation} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="eleGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={focusedFile?.color || '#3e82f7'} stopOpacity={0.3} />
+                      <stop offset="100%" stopColor={focusedFile?.color || '#3e82f7'} stopOpacity={0.05} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis
+                    dataKey="distance"
+                    type="number"
+                    domain={['dataMin', 'dataMax']}
+                    tickFormatter={v => `${Number(v).toFixed(1)}`}
+                    tick={{ fontSize: 10, fill: '#9ca3af' }}
+                    axisLine={{ stroke: '#e5e7eb' }}
+                    tickLine={false}
+                    label={{ value: 'km', position: 'insideBottomRight', offset: -5, style: { fontSize: 10, fill: '#9ca3af' } }}
+                  />
+                  <YAxis
+                    domain={['dataMin - 20', 'dataMax + 20']}
+                    tickFormatter={v => `${Math.round(Number(v))}`}
+                    tick={{ fontSize: 10, fill: '#9ca3af' }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={40}
+                    label={{ value: 'm', position: 'insideTopLeft', offset: -5, style: { fontSize: 10, fill: '#9ca3af' } }}
+                  />
+                  <Tooltip
+                    formatter={(value) => [`${Math.round(Number(value))}m`, 'Elevation']}
+                    labelFormatter={(label) => `${Number(label).toFixed(2)} km`}
+                    contentStyle={{ fontSize: 11, borderRadius: 8, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="elevation"
+                    stroke={focusedFile?.color || '#3e82f7'}
+                    strokeWidth={1.5}
+                    fill="url(#eleGradient)"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Error toast */}
       {errors.length > 0 && (
-        <div className="absolute bottom-4 left-1/2 z-[1000] max-w-md -translate-x-1/2 rounded-lg bg-red-600 px-4 py-2 text-sm text-white shadow-lg">
+        <div className={`absolute left-1/2 z-[1000] max-w-md -translate-x-1/2 rounded-lg bg-red-600 px-4 py-2 text-sm text-white shadow-lg ${focusedStats ? (focusedStats.elevation.length > 0 ? 'bottom-[200px]' : 'bottom-[55px]') : 'bottom-4'}`}>
           <div className="max-h-24 overflow-y-auto">
             {errorDisplay.shown.map((e, i) => (
               <div key={i}>{e}</div>
