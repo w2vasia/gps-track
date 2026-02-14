@@ -5,7 +5,8 @@ import L from 'leaflet';
 import { parseGPX, GPXData } from '../utils/gpxParser';
 import { WorkerPool } from '../utils/workerPool';
 
-const TRACK_COLORS = ['#3e82f7', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+const TRACK_COLORS = ['#3e82f7', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'] as const;
+const PICKER_COLORS = [...TRACK_COLORS, '#f97316', '#14b8a6', '#a855f7', '#e11d48'] as const;
 
 const markerIcon = (color: string) => L.divIcon({
   className: '',
@@ -27,6 +28,8 @@ interface LoadedFile {
   id: string;
   fileName: string;
   data: GPXData;
+  visible: boolean;
+  color: string;
 }
 
 const MapBoundsUpdater: React.FC<{ bounds: L.LatLngBounds | null; version: number }> = ({ bounds, version }) => {
@@ -70,38 +73,76 @@ L.Icon.Default.mergeOptions({
 
 interface FileListItemProps {
   file: LoadedFile;
-  color: string;
   focused: boolean;
   onFocus: (file: LoadedFile) => void;
   onRemove: (id: string) => void;
+  onToggleVisibility: (id: string) => void;
+  onOpenColorPicker: (id: string) => void;
 }
 
-const FileListItem = React.memo<FileListItemProps>(({ file, color, focused, onFocus, onRemove }) => (
-  <div
-    className={`group flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-black/4 ${focused ? 'bg-black/6' : ''}`}
-  >
-    <span
-      className="h-2.5 w-2.5 shrink-0 rounded-full"
-      style={{ backgroundColor: color }}
-    />
-    <span
-      className={`min-w-0 flex-1 cursor-pointer truncate text-sm transition-colors hover:text-[#3e82f7] ${focused ? 'font-medium text-[#3e82f7]' : 'text-gray-600'}`}
-      onClick={() => onFocus(file)}
-      title="Zoom to track"
-    >
-      {file.data.name || file.fileName}
-    </span>
-    <button
-      className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-gray-300 opacity-0 transition-all group-hover:opacity-100 hover:bg-red-50 hover:text-red-500"
-      onClick={() => onRemove(file.id)}
-      title="Remove"
-    >
-      <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="18" y1="6" x2="6" y2="18" />
-        <line x1="6" y1="6" x2="18" y2="18" />
-      </svg>
-    </button>
+const ColorPicker: React.FC<{ name: string; current: string; onChange: (color: string) => void; onClose: () => void }> = ({ name, current, onChange, onClose }) => (
+  <div className="absolute inset-0 z-[1002] flex items-center justify-center bg-black/20 backdrop-blur-xs" onClick={onClose}>
+    <div className="rounded-xl bg-white/95 px-5 py-4 shadow-2xl backdrop-blur-lg" onClick={e => e.stopPropagation()}>
+      <div className="relative mb-3 max-w-56 overflow-hidden whitespace-nowrap text-center text-sm font-medium text-gray-600" style={{ maskImage: 'linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%)' }}>{name}</div>
+      <div className="grid grid-cols-6 gap-2">
+        {PICKER_COLORS.map(c => (
+          <button
+            key={c}
+            className="h-7 w-7 cursor-pointer rounded-full border-none p-0 transition-transform hover:scale-110"
+            style={{ backgroundColor: c, boxShadow: c === current ? '0 0 0 2px white, 0 0 0 4px #374151' : 'none' }}
+            onClick={() => { onChange(c); onClose(); }}
+          />
+        ))}
+      </div>
+    </div>
   </div>
+);
+
+const FileListItem = React.memo<FileListItemProps>(({ file, focused, onFocus, onRemove, onToggleVisibility, onOpenColorPicker }) => (
+    <div
+      className={`group flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-black/4 ${focused ? 'bg-black/6' : ''} ${!file.visible ? 'opacity-40' : ''}`}
+    >
+      <span
+        className="block h-3 w-3 shrink-0 cursor-pointer rounded-full transition-transform hover:scale-125"
+        style={{ backgroundColor: file.color }}
+        onClick={() => onOpenColorPicker(file.id)}
+        title="Change color"
+      />
+      <span
+        className={`min-w-0 flex-1 cursor-pointer truncate text-sm transition-colors hover:text-[#3e82f7] ${focused ? 'font-medium text-[#3e82f7]' : 'text-gray-600'}`}
+        onClick={() => onFocus(file)}
+        title="Zoom to track"
+      >
+        {file.data.name || file.fileName}
+      </span>
+      <button
+        className={`flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-transparent transition-all ${file.visible ? 'text-gray-300 opacity-0 group-hover:opacity-100 hover:text-gray-500' : 'text-gray-400 opacity-100 hover:text-gray-600'}`}
+        onClick={() => onToggleVisibility(file.id)}
+        title={file.visible ? 'Hide track' : 'Show track'}
+      >
+        {file.visible ? (
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        ) : (
+          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+            <line x1="1" y1="1" x2="23" y2="23" />
+          </svg>
+        )}
+      </button>
+      <button
+        className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-gray-300 opacity-0 transition-all group-hover:opacity-100 hover:bg-red-50 hover:text-red-500"
+        onClick={() => onRemove(file.id)}
+        title="Remove"
+      >
+        <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
 ));
 
 const Spinner: React.FC<{ className?: string }> = ({ className = 'h-5 w-5' }) => (
@@ -137,6 +178,7 @@ const GpxViewer: React.FC = () => {
   const [focusedFileId, setFocusedFileId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAbout, setShowAbout] = useState(false);
+  const [colorPickerFileId, setColorPickerFileId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
   const nextId = useRef(0);
@@ -144,7 +186,7 @@ const GpxViewer: React.FC = () => {
   useEffect(() => () => { pool?.terminate(); pool = null; }, []);
 
   const mapBounds = useMemo(() => {
-    const all = files.map(fileBounds).filter((b): b is L.LatLngBounds => b !== null);
+    const all = files.filter(f => f.visible).map(fileBounds).filter((b): b is L.LatLngBounds => b !== null);
     if (all.length === 0) return null;
     return all.reduce((acc, b) => acc.extend(b.getSouthWest()).extend(b.getNorthEast()), new L.LatLngBounds(all[0].getSouthWest(), all[0].getNorthEast()));
   }, [files]);
@@ -175,11 +217,11 @@ const GpxViewer: React.FC = () => {
       const contents = await Promise.all(gpxFiles.map(f => f.text()));
       const results = await Promise.allSettled(contents.map(c => parseWithWorker(c)));
 
-      const newEntries: LoadedFile[] = [];
+      const newEntries: Omit<LoadedFile, 'color'>[] = [];
       const failed: string[] = [];
       results.forEach((r, i) => {
         if (r.status === 'fulfilled') {
-          newEntries.push({ id: String(++nextId.current), fileName: gpxFiles[i].name, data: r.value });
+          newEntries.push({ id: String(++nextId.current), fileName: gpxFiles[i].name, data: r.value, visible: true });
         } else {
           failed.push(gpxFiles[i].name);
         }
@@ -190,7 +232,7 @@ const GpxViewer: React.FC = () => {
         setTimeout(() => setErrors([]), 4000);
       }
       if (newEntries.length > 0) {
-        setFiles(prev => [...prev, ...newEntries]);
+        setFiles(prev => [...prev, ...newEntries.map((e, i) => ({ ...e, color: TRACK_COLORS[(prev.length + i) % TRACK_COLORS.length] }))]);
         setFocusBounds(null);
         setBoundsVersion(v => v + 1);
       }
@@ -227,6 +269,18 @@ const GpxViewer: React.FC = () => {
   const removeFile = useCallback((id: string) => {
     setFiles(prev => prev.filter(f => f.id !== id));
     setFocusedFileId(prev => prev === id ? null : prev);
+  }, []);
+
+  const toggleVisibility = useCallback((id: string) => {
+    setFiles(prev => prev.map(f => f.id === id ? { ...f, visible: !f.visible } : f));
+  }, []);
+
+  const changeColor = useCallback((id: string, color: string) => {
+    setFiles(prev => prev.map(f => f.id === id ? { ...f, color } : f));
+  }, []);
+
+  const openColorPicker = useCallback((id: string) => {
+    setColorPickerFileId(id);
   }, []);
 
   const focusFile = useCallback((file: LoadedFile) => {
@@ -302,7 +356,7 @@ const GpxViewer: React.FC = () => {
           <MapBoundsUpdater bounds={focusBounds ?? mapBounds} version={boundsVersion} />
           <MapClickHandler onMapClick={clearFocus} />
 
-          {files.map((file, fileIdx) => {
+          {files.filter(f => f.visible).map(file => {
             const fp = filePositions.find(f => f.id === file.id);
             if (!fp) return null;
             const isFocused = focusedFileId === file.id;
@@ -315,9 +369,7 @@ const GpxViewer: React.FC = () => {
                 <React.Fragment key={`${file.id}-t${trackIdx}`}>
                   <Polyline
                     positions={track.positions}
-                    color={TRACK_COLORS[fileIdx % TRACK_COLORS.length]}
-                    weight={hasFocus ? (isFocused ? 5 : 3) : 4}
-                    opacity={opacity}
+                    pathOptions={{ color: file.color, weight: hasFocus ? (isFocused ? 5 : 3) : 4, opacity }}
                   />
                   <Marker position={track.start} icon={startIcon} opacity={opacity}>
                     <Popup>
@@ -340,7 +392,7 @@ const GpxViewer: React.FC = () => {
             });
           })}
 
-          {files.map(file =>
+          {files.filter(f => f.visible).map(file =>
             file.data.waypoints?.map((wp, i) => (
               <Marker key={`${file.id}-wp${i}`} position={[wp.lat, wp.lng]}>
                 <Popup>
@@ -451,19 +503,17 @@ const GpxViewer: React.FC = () => {
 
           {/* File list */}
           <div className="flex flex-col gap-0.5 overflow-y-auto px-1.5 pb-2">
-            {filteredFiles.map(file => {
-              const globalIdx = files.indexOf(file);
-              return (
-                <FileListItem
-                  key={file.id}
-                  file={file}
-                  color={TRACK_COLORS[globalIdx % TRACK_COLORS.length]}
-                  focused={focusedFileId === file.id}
-                  onFocus={focusFile}
-                  onRemove={removeFile}
-                />
-              );
-            })}
+            {filteredFiles.map(file => (
+              <FileListItem
+                key={file.id}
+                file={file}
+                focused={focusedFileId === file.id}
+                onFocus={focusFile}
+                onRemove={removeFile}
+                onToggleVisibility={toggleVisibility}
+                onOpenColorPicker={openColorPicker}
+              />
+            ))}
           </div>
         </div>
       )}
@@ -484,6 +534,20 @@ const GpxViewer: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {/* Color picker modal */}
+      {colorPickerFileId && (() => {
+        const target = files.find(f => f.id === colorPickerFileId);
+        if (!target) return null;
+        return (
+          <ColorPicker
+            name={target.data.name || target.fileName}
+            current={target.color}
+            onChange={c => changeColor(colorPickerFileId, c)}
+            onClose={() => setColorPickerFileId(null)}
+          />
+        );
+      })()}
 
       {/* About modal */}
       {showAbout && (
