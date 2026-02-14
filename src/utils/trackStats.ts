@@ -48,7 +48,7 @@ export const computeTrackStats = (track: TrackSegment): TrackStats => {
 
   const first = pts[0]?.time;
   const last = pts[pts.length - 1]?.time;
-  const duration = first && last ? (last.getTime() - first.getTime()) / 1000 : null;
+  const duration = first && last ? Math.max(0, (last.getTime() - first.getTime()) / 1000) : null;
   const avgSpeed = duration && duration > 0 ? distance / duration : null;
 
   return { distance, elevGain, elevLoss, duration, avgSpeed, maxEle, minEle };

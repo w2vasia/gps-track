@@ -187,9 +187,11 @@ const GpxViewer: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showAbout, setShowAbout] = useState(false);
   const [colorPickerFileId, setColorPickerFileId] = useState<string | null>(null);
+  const [showPanel, setShowPanel] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
   const nextId = useRef(0);
+  const polylineClicked = useRef(false);
 
   useEffect(() => () => { pool?.terminate(); pool = null; }, []);
 
@@ -275,7 +277,11 @@ const GpxViewer: React.FC = () => {
   const handleDragOver = (event: React.DragEvent) => event.preventDefault();
 
   const removeFile = useCallback((id: string) => {
-    setFiles(prev => prev.filter(f => f.id !== id));
+    setFiles(prev => {
+      const next = prev.filter(f => f.id !== id);
+      if (next.length === 0) setShowPanel(false);
+      return next;
+    });
     setFocusedFileId(prev => prev === id ? null : prev);
   }, []);
 
@@ -292,27 +298,24 @@ const GpxViewer: React.FC = () => {
   }, []);
 
   const focusFile = useCallback((file: LoadedFile) => {
-    setFocusedFileId(prev => {
-      if (prev === file.id) {
-        // Deselect
-        return null;
-      }
-      const bounds = fileBounds(file);
-      if (bounds) {
-        setFocusBounds(bounds);
-        setBoundsVersion(v => v + 1);
-      }
-      return file.id;
-    });
+    setFocusedFileId(prev => prev === file.id ? null : file.id);
+    const bounds = fileBounds(file);
+    if (bounds) {
+      setFocusBounds(bounds);
+      setBoundsVersion(v => v + 1);
+    }
+    setShowPanel(true);
   }, []);
 
   const clearFocus = useCallback(() => {
+    if (polylineClicked.current) { polylineClicked.current = false; return; }
     setFocusedFileId(null);
   }, []);
 
   const clearAll = () => {
     setFiles([]);
     setFocusedFileId(null);
+    setShowPanel(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -361,6 +364,11 @@ const GpxViewer: React.FC = () => {
     };
   }, [focusedFile]);
 
+  // Panel visibility: open when toggle is on, has chart when focused track has elevation data
+  const panelHasChart = showPanel && focusedStats != null && focusedStats.elevation.length > 0;
+  const panelVisible = showPanel;
+  const panelClass = panelHasChart ? 'elevation-panel-chart' : panelVisible ? 'elevation-panel-stats' : '';
+
   // Format errors for toast
   const errorDisplay = useMemo(() => {
     if (errors.length <= 3) return { shown: errors, extra: 0 };
@@ -369,7 +377,7 @@ const GpxViewer: React.FC = () => {
 
   return (
     <div
-      className={`relative h-screen w-screen ${focusedStats ? (focusedStats.elevation.length > 0 ? 'elevation-panel-chart' : 'elevation-panel-stats') : ''}`}
+      className={`relative h-screen w-screen ${panelClass}`}
       onDrop={handleDrop}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
@@ -415,7 +423,7 @@ const GpxViewer: React.FC = () => {
                   <Polyline
                     positions={track.positions}
                     pathOptions={{ color: file.color, weight: hasFocus ? (isFocused ? 5 : 3) : 4, opacity }}
-                    eventHandlers={{ click: (e) => { e.originalEvent.stopPropagation(); focusFile(file); } }}
+                    eventHandlers={{ click: () => { polylineClicked.current = true; focusFile(file); } }}
                   />
                   <Marker position={track.start} icon={startIcon} opacity={opacity}>
                     <Popup>
@@ -565,7 +573,7 @@ const GpxViewer: React.FC = () => {
       )}
 
       {/* Map style switcher */}
-      <div className={`absolute right-3 z-[1000] flex gap-1 rounded-full bg-white/90 p-1 shadow-lg backdrop-blur-lg transition-all ${focusedStats ? (focusedStats.elevation.length > 0 ? 'bottom-[195px]' : 'bottom-[50px]') : 'bottom-3'}`}>
+      <div className={`absolute right-3 z-[1000] flex items-center gap-1 rounded-full bg-white/90 p-1 shadow-lg backdrop-blur-lg transition-all ${panelHasChart ? 'bottom-[195px]' : panelVisible ? 'bottom-[50px]' : 'bottom-3'}`}>
         {MAP_STYLES.map(style => (
           <button
             key={style.id}
@@ -579,6 +587,20 @@ const GpxViewer: React.FC = () => {
             {style.label}
           </button>
         ))}
+        {files.length > 0 && (
+          <>
+            <div className="mx-0.5 h-4 w-px bg-gray-200" />
+            <button
+              className={`cursor-pointer rounded-full border-none p-1.5 transition-all ${showPanel ? 'bg-[#3e82f7] text-white shadow-sm' : 'bg-transparent text-gray-500 hover:text-gray-700'}`}
+              onClick={() => setShowPanel(p => !p)}
+              title="Elevation profile"
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="22 12 18 6 13 14 9 8 2 18" />
+              </svg>
+            </button>
+          </>
+        )}
       </div>
 
       {/* Color picker modal */}
@@ -611,7 +633,7 @@ const GpxViewer: React.FC = () => {
                 Drop your GPX files and see where you've been. Tracks, routes, waypoints — all on one map.
               </p>
               <div className="flex flex-col gap-1 text-xs text-gray-400">
-                <span>v1.0.0</span>
+                <span>v1.2.0</span>
                 <span>by w2vasia</span>
               </div>
               <button
@@ -626,38 +648,44 @@ const GpxViewer: React.FC = () => {
       )}
 
       {/* Elevation panel */}
-      {focusedStats && (
+      {panelVisible && (
         <div className="absolute right-0 bottom-0 left-0 z-[1000] bg-white/95 shadow-[0_-2px_12px_rgba(0,0,0,0.1)] backdrop-blur-lg">
           {/* Stats bar */}
           <div className="flex items-center gap-4 border-b border-gray-100 px-4 py-2">
-            <div className="min-w-0 flex-1 truncate text-xs font-medium text-gray-600">
-              {focusedFile?.data.name || focusedFile?.fileName}
-            </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
-              <span title="Distance">{(focusedStats.stats.distance / 1000).toFixed(1)} km</span>
-              {focusedStats.stats.elevGain > 0 && (
-                <span title="Elevation gain" className="text-emerald-600">↑ {Math.round(focusedStats.stats.elevGain)}m</span>
-              )}
-              {focusedStats.stats.elevLoss > 0 && (
-                <span title="Elevation loss" className="text-red-500">↓ {Math.round(focusedStats.stats.elevLoss)}m</span>
-              )}
-              {focusedStats.stats.maxEle != null && (
-                <span title="Max elevation">⬆ {Math.round(focusedStats.stats.maxEle)}m</span>
-              )}
-              {focusedStats.stats.minEle != null && (
-                <span title="Min elevation">⬇ {Math.round(focusedStats.stats.minEle)}m</span>
-              )}
-              {focusedStats.stats.duration != null && (
-                <span title="Duration">⏱ {formatDuration(focusedStats.stats.duration)}</span>
-              )}
-              {focusedStats.stats.avgSpeed != null && (
-                <span title="Average speed">{(focusedStats.stats.avgSpeed * 3.6).toFixed(1)} km/h</span>
-              )}
-            </div>
+            {focusedStats ? (
+              <>
+                <div className="min-w-0 flex-1 truncate text-xs font-medium text-gray-600">
+                  {focusedFile?.data.name || focusedFile?.fileName}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                  <span title="Distance">{(focusedStats.stats.distance / 1000).toFixed(1)} km</span>
+                  {focusedStats.stats.elevGain > 0 && (
+                    <span title="Elevation gain" className="text-emerald-600">↑ {Math.round(focusedStats.stats.elevGain)}m</span>
+                  )}
+                  {focusedStats.stats.elevLoss > 0 && (
+                    <span title="Elevation loss" className="text-red-500">↓ {Math.round(focusedStats.stats.elevLoss)}m</span>
+                  )}
+                  {focusedStats.stats.maxEle != null && (
+                    <span title="Max elevation">⬆ {Math.round(focusedStats.stats.maxEle)}m</span>
+                  )}
+                  {focusedStats.stats.minEle != null && (
+                    <span title="Min elevation">⬇ {Math.round(focusedStats.stats.minEle)}m</span>
+                  )}
+                  {focusedStats.stats.duration != null && (
+                    <span title="Duration">⏱ {formatDuration(focusedStats.stats.duration)}</span>
+                  )}
+                  {focusedStats.stats.avgSpeed != null && (
+                    <span title="Average speed">{(focusedStats.stats.avgSpeed * 3.6).toFixed(1)} km/h</span>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 text-xs text-gray-400">Click a track to see elevation profile</div>
+            )}
             <button
               className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-gray-400 transition-colors hover:text-gray-600"
-              onClick={clearFocus}
-              title="Close"
+              onClick={() => setShowPanel(false)}
+              title="Close panel"
             >
               <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18" />
@@ -667,10 +695,10 @@ const GpxViewer: React.FC = () => {
           </div>
 
           {/* Elevation chart */}
-          {focusedStats.elevation.length > 0 && (
+          {panelHasChart && (
             <div className="h-[150px] w-full px-2 py-1">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={focusedStats.elevation} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                <AreaChart data={focusedStats!.elevation} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="eleGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={focusedFile?.color || '#3e82f7'} stopOpacity={0.3} />
@@ -719,7 +747,7 @@ const GpxViewer: React.FC = () => {
 
       {/* Error toast */}
       {errors.length > 0 && (
-        <div className={`absolute left-1/2 z-[1000] max-w-md -translate-x-1/2 rounded-lg bg-red-600 px-4 py-2 text-sm text-white shadow-lg ${focusedStats ? (focusedStats.elevation.length > 0 ? 'bottom-[200px]' : 'bottom-[55px]') : 'bottom-4'}`}>
+        <div className={`absolute left-1/2 z-[1000] max-w-md -translate-x-1/2 rounded-lg bg-red-600 px-4 py-2 text-sm text-white shadow-lg ${panelHasChart ? 'bottom-[200px]' : panelVisible ? 'bottom-[55px]' : 'bottom-4'}`}>
           <div className="max-h-24 overflow-y-auto">
             {errorDisplay.shown.map((e, i) => (
               <div key={i}>{e}</div>
