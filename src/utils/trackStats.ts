@@ -13,6 +13,8 @@ export interface TrackStats {
 export interface ElevationPoint {
   distance: number;   // cumulative distance in km
   elevation: number;  // elevation in meters
+  lat: number;
+  lng: number;
 }
 
 const R = 6371e3; // Earth radius in meters
@@ -65,7 +67,7 @@ export const computeElevationProfile = (track: TrackSegment): ElevationPoint[] =
   for (let i = 0; i < pts.length; i++) {
     if (i > 0) cumDist += haversineDistance(pts[i - 1], pts[i]);
     if (pts[i].ele != null) {
-      result.push({ distance: cumDist / 1000, elevation: pts[i].ele! });
+      result.push({ distance: cumDist / 1000, elevation: pts[i].ele!, lat: pts[i].lat, lng: pts[i].lng });
     }
   }
 

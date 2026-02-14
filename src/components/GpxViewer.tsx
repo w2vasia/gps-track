@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
-import { MapContainer, TileLayer, Polyline, Marker, Popup, ScaleControl, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Polyline, Marker, Popup, ScaleControl, CircleMarker, useMap, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
@@ -188,6 +188,7 @@ const GpxViewer: React.FC = () => {
   const [showAbout, setShowAbout] = useState(false);
   const [colorPickerFileId, setColorPickerFileId] = useState<string | null>(null);
   const [showPanel, setShowPanel] = useState(false);
+  const [hoveredPoint, setHoveredPoint] = useState<{ lat: number; lng: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
   const nextId = useRef(0);
@@ -299,6 +300,7 @@ const GpxViewer: React.FC = () => {
 
   const focusFile = useCallback((file: LoadedFile) => {
     setFocusedFileId(prev => prev === file.id ? null : file.id);
+    setHoveredPoint(null);
     const bounds = fileBounds(file);
     if (bounds) {
       setFocusBounds(bounds);
@@ -310,6 +312,7 @@ const GpxViewer: React.FC = () => {
   const clearFocus = useCallback(() => {
     if (polylineClicked.current) { polylineClicked.current = false; return; }
     setFocusedFileId(null);
+    setHoveredPoint(null);
   }, []);
 
   const clearAll = () => {
@@ -351,7 +354,7 @@ const GpxViewer: React.FC = () => {
 
       const segProfile = computeElevationProfile(track);
       for (const p of segProfile) {
-        allElevation.push({ distance: p.distance + cumulativeDistance / 1000, elevation: p.elevation });
+        allElevation.push({ distance: p.distance + cumulativeDistance / 1000, elevation: p.elevation, lat: p.lat, lng: p.lng });
       }
       cumulativeDistance += s.distance;
     }
@@ -459,6 +462,14 @@ const GpxViewer: React.FC = () => {
                 </Popup>
               </Marker>
             ))
+          )}
+
+          {panelHasChart && hoveredPoint && (
+            <CircleMarker
+              center={[hoveredPoint.lat, hoveredPoint.lng]}
+              radius={5}
+              pathOptions={{ color: 'white', fillColor: focusedFile?.color || '#3e82f7', fillOpacity: 1, weight: 2 }}
+            />
           )}
         </MapContainer>
       </div>
@@ -698,7 +709,17 @@ const GpxViewer: React.FC = () => {
           {panelHasChart && (
             <div className="h-[150px] w-full px-2 py-1">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={focusedStats!.elevation} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                <AreaChart
+                  data={focusedStats!.elevation}
+                  margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
+                  onMouseMove={(state) => {
+                    if (state && 'activeTooltipIndex' in state && state.activeTooltipIndex != null) {
+                      const pt = focusedStats!.elevation[state.activeTooltipIndex as number];
+                      if (pt) setHoveredPoint({ lat: pt.lat, lng: pt.lng });
+                    }
+                  }}
+                  onMouseLeave={() => setHoveredPoint(null)}
+                >
                   <defs>
                     <linearGradient id="eleGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={focusedFile?.color || '#3e82f7'} stopOpacity={0.3} />
