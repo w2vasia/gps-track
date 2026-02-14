@@ -1,8 +1,9 @@
-import React, { useState, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import { MapContainer, TileLayer, Polyline, Marker, Popup, ScaleControl, useMap, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { parseGPX, GPXData } from '../utils/gpxParser';
+import { WorkerPool } from '../utils/workerPool';
 
 const TRACK_COLORS = ['#3e82f7', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
@@ -110,6 +111,21 @@ const Spinner: React.FC<{ className?: string }> = ({ className = 'h-5 w-5' }) =>
   </svg>
 );
 
+let pool: WorkerPool | null = null;
+const getPool = (): WorkerPool => {
+  if (!pool) pool = new WorkerPool();
+  return pool;
+};
+
+const parseWithWorker = async (content: string): Promise<GPXData> => {
+  if (typeof Worker === 'undefined') return parseGPX(content);
+  try {
+    return await getPool().parse(content, 'gpx');
+  } catch {
+    return parseGPX(content);
+  }
+};
+
 const GpxViewer: React.FC = () => {
   const [files, setFiles] = useState<LoadedFile[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -124,6 +140,8 @@ const GpxViewer: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
   const nextId = useRef(0);
+
+  useEffect(() => () => { pool?.terminate(); pool = null; }, []);
 
   const mapBounds = useMemo(() => {
     const all = files.map(fileBounds).filter((b): b is L.LatLngBounds => b !== null);
@@ -154,17 +172,19 @@ const GpxViewer: React.FC = () => {
 
     setLoading(true);
     try {
+      const contents = await Promise.all(gpxFiles.map(f => f.text()));
+      const results = await Promise.allSettled(contents.map(c => parseWithWorker(c)));
+
       const newEntries: LoadedFile[] = [];
       const failed: string[] = [];
-      for (const file of gpxFiles) {
-        try {
-          const content = await file.text();
-          const data = await parseGPX(content);
-          newEntries.push({ id: String(++nextId.current), fileName: file.name, data });
-        } catch {
-          failed.push(file.name);
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled') {
+          newEntries.push({ id: String(++nextId.current), fileName: gpxFiles[i].name, data: r.value });
+        } else {
+          failed.push(gpxFiles[i].name);
         }
-      }
+      });
+
       if (failed.length > 0) {
         setErrors(failed.map(n => `Failed to parse ${n}`));
         setTimeout(() => setErrors([]), 4000);
