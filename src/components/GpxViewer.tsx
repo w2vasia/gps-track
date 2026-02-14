@@ -369,7 +369,7 @@ const GpxViewer: React.FC = () => {
 
   return (
     <div
-      className="relative h-screen w-screen"
+      className={`relative h-screen w-screen ${focusedStats ? (focusedStats.elevation.length > 0 ? 'elevation-panel-chart' : 'elevation-panel-stats') : ''}`}
       onDrop={handleDrop}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
@@ -415,6 +415,7 @@ const GpxViewer: React.FC = () => {
                   <Polyline
                     positions={track.positions}
                     pathOptions={{ color: file.color, weight: hasFocus ? (isFocused ? 5 : 3) : 4, opacity }}
+                    eventHandlers={{ click: (e) => { e.originalEvent.stopPropagation(); focusFile(file); } }}
                   />
                   <Marker position={track.start} icon={startIcon} opacity={opacity}>
                     <Popup>
@@ -632,7 +633,7 @@ const GpxViewer: React.FC = () => {
             <div className="min-w-0 flex-1 truncate text-xs font-medium text-gray-600">
               {focusedFile?.data.name || focusedFile?.fileName}
             </div>
-            <div className="flex items-center gap-3 text-xs text-gray-500">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
               <span title="Distance">{(focusedStats.stats.distance / 1000).toFixed(1)} km</span>
               {focusedStats.stats.elevGain > 0 && (
                 <span title="Elevation gain" className="text-emerald-600">↑ {Math.round(focusedStats.stats.elevGain)}m</span>
