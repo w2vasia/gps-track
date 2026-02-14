@@ -457,7 +457,7 @@ const GpxViewer: React.FC = () => {
             <div className="flex items-center gap-1.5">
               <span className="text-sm font-semibold tracking-tight text-gray-700">Drift</span>
               <button
-                className="flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-gray-300 transition-colors hover:text-[#3e82f7]"
+                className="flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border-none bg-transparent text-gray-400 transition-colors hover:text-[#3e82f7]"
                 onClick={() => setShowAbout(true)}
                 title="About Drift"
               >
@@ -561,10 +561,10 @@ const GpxViewer: React.FC = () => {
           >
             <div className="flex flex-col items-center gap-4 text-center">
               <div className="text-2xl font-semibold tracking-tight text-gray-800">Drift</div>
-              <p className="text-sm leading-relaxed text-gray-400">
+              <p className="text-sm leading-relaxed text-gray-500">
                 Drop your GPX files and see where you've been. Tracks, routes, waypoints — all on one map.
               </p>
-              <div className="flex flex-col gap-1 text-xs text-gray-300">
+              <div className="flex flex-col gap-1 text-xs text-gray-400">
                 <span>v1.0.0</span>
                 <span>by w2vasia</span>
               </div>
